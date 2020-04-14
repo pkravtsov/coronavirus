@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>статистика коронавируса</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="text/javascript" src="https://coronavirus-monitor.ru/jquery-lite-9.js?a=12"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/d3/5.15.1/d3.min.js"></script>
+  <script type="text/javascript">
+    function takeLast(count) {
+        return function(d, i, data) { return data.length - i <= count };
+    }
+
+    function get(url, params /* @todo */) {
+      return fetch(url).then(function(response) { return response.ok ? response.text() : Promise.reject(response) });
+    }
+
+//          var dataSourceUrl = 'https://coronavirus-monitor.ru/jquery-lite-9.js?a=12';
+//          get(dataSourceUrl).then(function(result) {console.log(result)}, function(result) {console.error(result)});
+
+    function getSourceData() {
+        return getOnDocumentReadyPromise().then(function() { return window.dataFromServer || Promise.reject('No data') });
+    }
+
+    function getOnDocumentReadyPromise() {
+        if (!window.__onDocumentReadyPromise) {
+		    window.__onDocumentReadyPromise = new Promise(function(resolve) { window.addEventListener('load', resolve) }); 
+        }
+
+        return window.__onDocumentReadyPromise;
+    }
+
+    function el(tag, text) {
+	    var view = document.createElement(tag);
+	    text && view.append(document.createTextNode(text));
+	    return view;
+    }
+
+    getSourceData().then(function(d) {
+        console.info(d);
+
+	    var countries = d.countries.data.countries;
+
+        var dates = Object.keys(countries
+            .reduce(function(dates, country) {
+                // @side-effect
+                country.statisticsHash = country.statistics.reduce(function(dates, entry) { dates[entry.date] = entry; return dates }, {});
+                return Object.assign(dates, country.statisticsHash);
+            }, {}))
+            .sort()
+            .filter(takeLast(14));
+
+	    var countriesView = document.querySelector('#countries tbody');
+	    var countriesHeadView = document.querySelector('#countries thead tr');
+        var LOCALE_RU = 'ru-RU';
+        var locale = LOCALE_RU;
+        var df = new Intl.NumberFormat(locale, {minimumIntegerDigits: 2});
+        var nf = new Intl.NumberFormat(locale);
+        var ff = new Intl.NumberFormat(locale, {maximumFractionDigits: 1});
+
+        function toDate(string) { return new Date(string) };
+
+        function formatToDayAndMonth(date) { return df.format(date.getDate())+'.'+df.format(date.getMonth()+1) };
+
+        function toDayAndMonth(string) { return formatToDayAndMonth(toDate(string)) }
+
+        dates
+            .map(toDayAndMonth)
+            .forEach(function(date) { countriesHeadView.append(el('td', date)) });
+
+        function getConfirmed(data, date) {
+            return date in data && data[date].confirmed || null;
+        }
+
+        function getCountryConfirmed(country, date) {
+            return getConfirmed(country.statisticsHash, date);
+        }
+
+        var totalHash = dates.reduce(function(hash, date) {
+            hash[date] = { confirmed: countries.reduce(function(sum, country) { return sum + (getCountryConfirmed(country, date) || 0) }, 0)};
+            return hash
+        }, {});
+
+        function renderDataRow(country) {
+		    var rowView = el('tr');
+		    rowView.append(el('td', country.ru));
+            dates.forEach(function(date) {
+                var confirmed = getCountryConfirmed(country, date);
+                rowView.append(el('td', 
+                confirmed
+                    && (
+                        nf.format(confirmed)
+                        + ' (' + ff.format(100.0 * confirmed / getConfirmed(totalHash, date)) + '%)'
+                    )
+                    || '-')) });
+		    countriesView.append(rowView);
+        }
+
+// Diagram
+
+        var margin = {top: 20, right: 30, bottom: 30, left: 80};
+
+        var height = 400;
+        var width = 2000;
+
+        var x = d3.scaleBand()
+            .domain(dates.map(toDayAndMonth))
+            .range([margin.left, width - margin.right])
+            .padding(0.1)
+            .round(true);
+
+        var RUSSIA_INDEX = 14;
+
+        function constructDiagramForCountry(country) {
+            var domainRange = d3.extent(dates, function(d) { return getCountryConfirmed(country, d) });
+
+            var y = d3.scaleLinear()
+                .domain(domainRange)
+                .range([height - margin.bottom, margin.top]);
+
+            var svg = d3.create("svg")
+                  .attr("viewBox", [0, 0, width, height]);
+
+            svg.append("g")
+                .attr("fill", "#bbb")
+                .selectAll("rect")
+                .data(dates)
+                .join("rect")
+                  .attr("x", function(d) { return x(toDayAndMonth(d)) })
+                  .attr("y", function(d) { return y(getCountryConfirmed(country, d)) })
+                  .attr("width", function (d) { return x.bandwidth() })
+                  .attr("height", function(d) { var result = y(domainRange[0]) - y(getCountryConfirmed(country, d)); return result < 0 ? 0: result });
+            
+            svg.append("g")
+                  .attr("fill", "black")
+                  .attr("text-anchor", "middle")
+                  .attr("font-family", "sans-serif")
+                  .attr("font-size", 12)
+                .selectAll("text")
+                .data(dates)
+                .join("text")
+                  .attr("x", function(d) { return x(toDayAndMonth(d)) + x.bandwidth() / 2 })
+                  .attr("y", function(d, i) { return y(getCountryConfirmed(country, d)) })
+                  .attr("dy", "-0.35em")
+                  .text(function(d) { return nf.format(getCountryConfirmed(country, d)) });
+
+
+            svg.append("g")
+                .attr("transform", 'translate(0,'+(height - margin.bottom)+')')
+                .call(d3.axisBottom(x));
+
+            svg.append("g")
+                .attr("transform", 'translate('+margin.left+',0)')
+                .call(d3.axisLeft(y))
+                .call(function(g) { return g.select(".domain").remove() });
+
+            return svg;
+        }
+
+        renderDataRow({ru: 'Всего', statisticsHash: totalHash});
+	    countries.forEach(renderDataRow);
+
+        var countryDiagramsView = document.querySelector('#countries1 tbody');
+
+        function renderCountryDiagramRow(country) {
+		    var rowView = el('tr');
+            var diagramView = el('td');
+            diagramView.appendChild(constructDiagramForCountry(country).node());
+            rowView.append(el('td', country.ru));
+		    rowView.append(diagramView);
+		    countryDiagramsView.append(rowView);
+        }
+
+        renderCountryDiagramRow({ru: 'Всего', statisticsHash: totalHash});
+        countries.forEach(renderCountryDiagramRow);
+    }, function(msg) { console.error(msg) });
+  </script>
+</head>
+<body>
+	<h1>статистика коронавируса</h1>    
+	<table id="countries1">
+		<thead>
+			<tr>
+				<td>страна</td>
+				<td>развитие посуточно</td>
+			</tr>
+		</thead>
+		<tbody>
+			<tr>
+				<td></td>
+				<td></td>
+			</tr>
+        </tbody>
+	</table>
+	<table id="countries">
+		<thead>
+			<tr>
+				<td>страна</td>
+			</tr>
+		</thead>
+		<tbody></tbody>
+	</table>
+</body>
+</html>
