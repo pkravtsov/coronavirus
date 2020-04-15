@@ -67,10 +67,6 @@
 
         function toDayAndMonth(string) { return formatToDayAndMonth(toDate(string)) }
 
-        dates
-            .map(toDayAndMonth)
-            .forEach(function(date) { countriesHeadView.append(el('td', date)) });
-
         function getConfirmed(data, date, accumulated) {
             return date in data && data[date][accumulated ? 'confirmed' : 'confirmedPerDay'] || null;
         }
@@ -118,16 +114,12 @@
         var RUSSIA_INDEX = 14;
 
         function constructDiagramForCountry(country) {
-        console.log(country.ru);
             var data = dates.map(function(date) { return {date: date, value: getCountryConfirmed(country, date) || 0} });
             var domainRange = [0, d3.max(data, function(d) { return d.value })];
-            console.log(domainRange);
 
             var y = d3.scaleLinear()
                 .domain(domainRange)
                 .range([height - margin.bottom, margin.top]);
-
-            console.log({min: y(domainRange[0]), max: y(domainRange[1])});
 
             var svg = d3.create("svg")
                   .attr("viewBox", [0, 0, width, height]);
@@ -138,7 +130,7 @@
                 .data(data)
                 .join("rect")
                   .attr("x", function(d) { return x(toDayAndMonth(d.date)) })
-                  .attr("y", function(d) { var t = y(d.value); console.log(d.date + ': ' + d.value + ': ' + t); return t })
+                  .attr("y", function(d) { return y(d.value); })
                   .attr("width", function (d) { return x.bandwidth() })
                   .attr("height", function(d) { var result = y(domainRange[0]) - y(d.value); return result < 0 ? 0: result });
             
@@ -168,8 +160,11 @@
             return svg;
         }
 
-        renderDataRow({ru: 'Всего', statisticsHash: totalHash});
-        countries.forEach(renderDataRow);
+//        dates
+//            .map(toDayAndMonth)
+//            .forEach(function(date) { countriesHeadView.append(el('td', date)) });
+//        renderDataRow({ru: 'Всего', statisticsHash: totalHash});
+//        countries.forEach(renderDataRow);
         
         function NodeCollectionView(anchor) {
                 var lastNode = anchor;
@@ -195,6 +190,7 @@
 <body>
 	<h1>фактов заражений коронавирусом за сутки</h1>
 	<p>Спасибо за данные coronavirus-monitor.ru<p>
+	<!--
 	<table id="countries">
 		<thead>
 			<tr>
@@ -203,5 +199,6 @@
 		</thead>
 		<tbody></tbody>
 	</table>
+	-->
 </body>
 </html>
