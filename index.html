@@ -7,12 +7,28 @@
   <script type="text/javascript" src="https://coronavirus-monitor.ru/jquery-lite-9.js?a=12"></script>
   <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/d3/5.15.1/d3.min.js"></script>
   <script type="text/javascript">
+    function seq() {
+        var functions = Array.prototype.slice.call(arguments);
+        
+        return function() {
+            var result;
+            var args = arguments;
+            var self = this;
+            functions.forEach(function(f) { result = f.apply(self, args); });
+            return result;
+        }
+    }
+    
     function take(count) {
         return function(d, i, data) { return i < count };
     }
 
     function takeLast(count) {
         return function(d, i, data) { return data.length - i <= count };
+    }
+    
+    function sum(f) {
+        return f ? function(sum, entry) { return sum + f(entry) } : function(sum, entry) { return sum + entry };
     }
 
     function get(url, params /* @todo */) {
@@ -34,11 +50,19 @@
         return window.__onDocumentReadyPromise;
     }
 
-    function el(tag, text) {
+    function el(tag, content) {
 	    var view = document.createElement(tag);
-	    text && view.append(document.createTextNode(text));
+	    var subElement = content && (typeof content === 'string' ? document.createTextNode(content) : content);
+	    subElement && view.append(subElement);
 	    return view;
     }
+
+    var LOCALE_RU = 'ru-RU';
+    var locale = LOCALE_RU;
+    var df = new Intl.NumberFormat(locale, {minimumIntegerDigits: 2});
+//    var nf = new Intl.NumberFormat(locale);
+    var nf = {format: d3.format('.2~s')};
+    var ff = new Intl.NumberFormat(locale, {maximumFractionDigits: 1});
 
     getSourceData().then(function(d) {
         console.info(d);
@@ -49,9 +73,12 @@
             .reduce(function(dates, country) {
                 // @side-effect
                 country.statisticsHash = country.statistics.reduce(function(dates, entry, i) {
-                    dates[entry.date] = Object.assign(entry, {confirmedPerDay: i && entry.confirmed - country.statistics[i-1].confirmed});
+                    dates[entry.date] = Object.assign(entry, {
+                        confirmedPerDay: i && entry.confirmed - country.statistics[i-1].confirmed, 
+                        infected: entry.confirmed - entry.cured - entry.deaths});
                     return dates
                 }, {});
+                country.infected = country.statistics[country.statistics.length - 1].infected;
                 return Object.assign(dates, country.statisticsHash);
             }, {}))
             .sort()
@@ -59,11 +86,6 @@
 
 	    var countriesView = document.querySelector('#countries tbody');
 	    var countriesHeadView = document.querySelector('#countries thead tr');
-        var LOCALE_RU = 'ru-RU';
-        var locale = LOCALE_RU;
-        var df = new Intl.NumberFormat(locale, {minimumIntegerDigits: 2});
-        var nf = new Intl.NumberFormat(locale);
-        var ff = new Intl.NumberFormat(locale, {maximumFractionDigits: 1});
 
         function toDate(string) { return new Date(string) };
 
@@ -71,8 +93,12 @@
 
         function toDayAndMonth(string) { return formatToDayAndMonth(toDate(string)) }
 
+        function getCountryProperty(property, data, date) {
+            return date in data && data[date][property] || null;
+        }
+
         function getConfirmed(data, date, accumulated) {
-            return date in data && data[date][accumulated ? 'confirmed' : 'confirmedPerDay'] || null;
+            return getCountryProperty(accumulated ? 'confirmed' : 'confirmedPerDay', data, date);
         }
 
         function getCountryConfirmed(country, date, accumulated) {
@@ -82,7 +108,8 @@
         var totalHash = dates.reduce(function(hash, date) {
             hash[date] = {
                 confirmedPerDay: countries.reduce(function(sum, country) { return sum + (getCountryConfirmed(country, date) || 0) }, 0),
-                confirmed: countries.reduce(function(sum, country) { return sum + (getCountryConfirmed(country, date, true) || 0) }, 0)
+                confirmed: countries.reduce(function(sum, country) { return sum + (getCountryConfirmed(country, date, true) || 0) }, 0),
+                infected: countries.reduce(sum(function(country) { return country.infected || 0 }), 0),
             };
             return hash
         }, {});
@@ -96,7 +123,9 @@
                 confirmed
                     && (
                         nf.format(confirmed)
-                        + ' (' + ff.format(100.0 * confirmed / getConfirmed(totalHash, date, true)) + '%)'
+                        + ' ('
+                        + ff.format(100.0 * confirmed / getConfirmed(totalHash, date, true))
+                        + '%)'
                     )
                     || '-')) });
 		    countriesView.append(rowView);
@@ -104,12 +133,11 @@
 
 // Diagram
 
-        var margin = {top: 20, right: 30, bottom: 30, left: 80};
+        var margin = {top: 30, right: 30, bottom: 30, left: 0};
 
-        console.log(window.screen.width);
-        console.log(window.screen.height);
         var width = 2000;
-        var height = width*window.screen.height/window.screen.width*0.5;
+        var height = 500;
+//        var height = width*window.screen.height/window.screen.width*0.5;
 
         var x = d3.scaleBand()
             .domain(dates.map(toDayAndMonth))
@@ -131,7 +159,7 @@
                   .attr("viewBox", [0, 0, width, height]);
 
             svg.append("g")
-                .attr("fill", "#bbb")
+                .attr("fill", "#c0bbd8")
                 .selectAll("rect")
                 .data(data)
                 .join("rect")
@@ -144,7 +172,7 @@
                   .attr("fill", "black")
                   .attr("text-anchor", "middle")
                   .attr("font-family", "sans-serif")
-                  .attr("font-size", 12)
+                  //.attr("font-size", '2em')
                 .selectAll("text")
                 .data(dates)
                 .join("text")
@@ -154,13 +182,15 @@
                   .text(function(d) { return nf.format(getCountryConfirmed(country, d)) });
 
 
-            svg.append("g")
+            var g1 = svg.append("g")
                 .attr("transform", 'translate(0,'+(height - margin.bottom)+')')
-                .call(d3.axisBottom(x));
+                .call(d3.axisBottom(x))
+                .attr("font-size", "inherit");
+                
 
-            svg.append("g")
-                .attr("transform", 'translate('+margin.left+',0)')
-                .call(d3.axisLeft(y))
+//            svg.append("g")
+//                .attr("transform", 'translate('+margin.left+',0)')
+//                .call(d3.axisLeft(y))
 //                .call(function(g) { return g.select(".domain").remove() });
 
             return svg;
@@ -172,31 +202,47 @@
 //        renderDataRow({ru: 'Всего', statisticsHash: totalHash});
 //        countries.forEach(renderDataRow);
         
-        function NodeCollectionView(anchor) {
+        function NodeCollectionView(anchor, position) {
                 var lastNode = anchor;
                 
                 this.append = function(node) {
-                    lastNode.insertAdjacentElement('afterend', node);
+                    lastNode.insertAdjacentElement(position, node);
                     lastNode = node;
+                    position = 'afterend';
                 };
         }
 
-        var countryDiagramsView = new NodeCollectionView(document.querySelector('h1'));
+        var navView = document.querySelector('nav ul');
 
-        function renderCountryDiagramRow(country) {
-            countryDiagramsView.append(el('h2', country.ru));
-            countryDiagramsView.append(constructDiagramForCountry(country).node());
+        function renderNav(country) {
+            var a = el('a', country.ru+': '+nf.format(country.infected));
+            a.href = '#'+country.en;
+            if (country.ru === 'Россия') { a.insertAdjacentHTML('afterbegin', '<i class="flag ru"></i>') }
+            navView.append(el('li', a));
         }
 
-        renderCountryDiagramRow({ru: 'Всего', statisticsHash: totalHash});
-        countries.filter(take(20)).forEach(renderCountryDiagramRow);
+        var countryDiagramsView = new NodeCollectionView(document.querySelector('h1:nth-of-type(2)'), 'afterend');
+
+        function renderCountryDiagramRow(country) {
+            var h2 = el('h2', country.ru+': '+nf.format(country.infected));
+            h2.id = country.en;
+            countryDiagramsView.append(h2);
+            countryDiagramsView.append(constructDiagramForCountry(country).node());
+        }
+        
+        var render = seq(renderCountryDiagramRow, renderNav);
+        var totalData = {ru: 'Всего', infected: Object.values(totalHash).reduce(sum(function(c) { return c.infected }), 0), statisticsHash: totalHash};
+        render(totalData);
+        var firstCountriesNumber = 20;
+        countries.filter(take(firstCountriesNumber)).forEach(render);
     }, function(msg) { console.error(msg) });
   </script>
 </head>
 <body>
 	<p>Спасибо за данные coronavirus-monitor.ru<p>
-	<h2>фактов заражений коронавирусом за сутки</h2>
-	<h1>Топ 20 стран</h1>
+	<h1>Топ-20 зараженных стран</h1>
+	<nav><ul></ul></nav>
+	<h1>Заражений за сутки</h1>
 	<!--
 	<table id="countries">
 		<thead>

@@ -1,5 +1,9 @@
 body { font-family: monospace; }
 
+a {
+    color: black;
+}
+
 thead {
 	font-weight: bold;
   background-color: seashell;
@@ -20,4 +24,51 @@ tr:hover {
 
 table#countries1 {
     width: 100%;
+}
+
+nav {
+    margin-bottom: 30px;
+}
+
+nav ul {
+    padding: 0;
+}
+
+nav ul li {
+    display: inline-block;
+}
+
+nav a {
+    color: white;
+    display: inline-block;
+    padding: 8px;
+    margin: 5px;
+    background-color: #c0bbd8;
+    border-radius: 4px;
+    text-decoration: none;
+}
+
+nav a:hover {
+    background-color: #aba6bf;
+}
+
+svg {
+    font-size: 1.5em;
+}
+
+.flag {
+    background-image: url('https://s3-us-west-2.amazonaws.com/s.cdpn.io/209282/flags.png');
+    display: inline-block;
+    height: 17px;
+    width: 23px;
+}
+
+.ru {
+    background-position: -37px -843px;
+}
+
+nav .flag {
+    position: absolute;
+//    top: 4px;
+//    margin-right: 5px;
 }
