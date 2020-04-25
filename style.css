@@ -32,6 +32,7 @@ nav {
 
 nav ul {
     padding: 0;
+    /*font-size: 1em;*/
 }
 
 nav ul li {
@@ -53,7 +54,7 @@ nav a:hover {
 }
 
 svg {
-    font-size: 1.5em;
+    font-size: 15px;
 }
 
 .flag {
@@ -68,7 +69,11 @@ svg {
 }
 
 nav .flag {
-    position: absolute;
-//    top: 4px;
-//    margin-right: 5px;
+    position: relative;
+    top: 4px;
+    margin-right: 5px;
+}
+
+h3.diagram {
+  text-align: center;
 }

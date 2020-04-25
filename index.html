@@ -31,6 +31,10 @@
         return f ? function(sum, entry) { return sum + f(entry) } : function(sum, entry) { return sum + entry };
     }
 
+    function max(f) {
+        return f ? function(opt, entry) { var e = f(entry); return e > opt ? e : opt } : function(opt, entry) { return entry > opt ? entry : opt };
+    }
+
     function get(url, params /* @todo */) {
       return fetch(url).then(function(response) { return response.ok ? response.text() : Promise.reject(response) });
     }
@@ -134,57 +138,68 @@
 // Diagram
 
         var margin = {top: 30, right: 30, bottom: 30, left: 0};
-
-        var width = 2000;
-        var height = 500;
+        var box = {width: 1000, height: 300};
 //        var height = width*window.screen.height/window.screen.width*0.5;
 
         var x = d3.scaleBand()
             .domain(dates.map(toDayAndMonth))
-            .range([margin.left, width - margin.right])
-            .padding(0.1)
+            .range([margin.left, box.width - margin.right])
+            .padding(0.1);
             //.round(true);
 
         var RUSSIA_INDEX = 14;
 
-        function constructDiagramForCountry(country) {
+        function constructDiagramForCountry(country, verticalOrientation) {
+            verticalOrientation = false;
+            var variant = {
+                x: verticalOrientation ? "y" : "x",
+                y: verticalOrientation ? "x" : "y",
+                width: verticalOrientation ? "height" : "width",
+                height: verticalOrientation ? "width" : "height",
+                top: verticalOrientation ? "left" : "top",
+                right: verticalOrientation ? "bottom" : "right", 
+                bottom: verticalOrientation ? "right" : "bottom", 
+                left: verticalOrientation ? "top" : "left",
+                dy: verticalOrientation ? "dx" : "dy",
+                translateArguments: verticalOrientation ? (box.height - margin.bottom)+',0' : '0,'+(box.height - margin.bottom),
+                categorysAxis: verticalOrientation ? d3.axisLeft : d3.axisBottom
+            };
             var data = dates.map(function(date) { return {date: date, value: getCountryConfirmed(country, date) || 0} });
             var domainRange = [0, d3.max(data, function(d) { return d.value })];
 
             var y = d3.scaleLinear()
                 .domain(domainRange)
-                .range([height - margin.bottom, margin.top]);
+                .range([box.height - margin.bottom, margin.top]);
 
             var svg = d3.create("svg")
-                  .attr("viewBox", [0, 0, width, height]);
+                  .attr("viewBox", [0, 0, box[variant.width], box[variant.height]]);
 
             svg.append("g")
                 .attr("fill", "#c0bbd8")
                 .selectAll("rect")
                 .data(data)
                 .join("rect")
-                  .attr("x", function(d) { return x(toDayAndMonth(d.date)) })
-                  .attr("y", function(d) { return y(d.value); })
-                  .attr("width", function (d) { return x.bandwidth() })
-                  .attr("height", function(d) { var result = y(domainRange[0]) - y(d.value); return result < 0 ? 0: result });
+                  .attr(variant.x, function(d) { return x(toDayAndMonth(d.date)) })
+                  .attr(variant.y, function(d) { return y(d.value); })
+                  .attr(variant.width, function (d) { return x.bandwidth() })
+                  .attr(variant.height, function(d) { var result = y(domainRange[0]) - y(d.value); return result < 0 ? 0: result });
             
             svg.append("g")
                   .attr("fill", "black")
                   .attr("text-anchor", "middle")
                   .attr("font-family", "sans-serif")
-                  //.attr("font-size", '2em')
                 .selectAll("text")
                 .data(dates)
                 .join("text")
-                  .attr("x", function(d) { return x(toDayAndMonth(d)) + x.bandwidth() / 2 })
-                  .attr("y", function(d, i) { return y(getCountryConfirmed(country, d)) })
-                  .attr("dy", "-0.35em")
+                  .attr(variant.x, function(d) { return x(toDayAndMonth(d)) + x.bandwidth() / 2 })
+                  .attr(variant.y, function(d, i) { return y(getCountryConfirmed(country, d)) })
+                  .attr(variant.dy, "-0.35em")
                   .text(function(d) { return nf.format(getCountryConfirmed(country, d)) });
 
 
             var g1 = svg.append("g")
-                .attr("transform", 'translate(0,'+(height - margin.bottom)+')')
-                .call(d3.axisBottom(x))
+                .attr("transform", 'translate('+variant.translateArguments+')')
+                .call(variant.categorysAxis(x))
                 .attr("font-size", "inherit");
                 
 
@@ -216,22 +231,30 @@
 
         function renderNav(country) {
             var a = el('a', country.ru+': '+nf.format(country.infected));
+            var li = el('li', a);
             a.href = '#'+country.en;
-            if (country.ru === 'Россия') { a.insertAdjacentHTML('afterbegin', '<i class="flag ru"></i>') }
-            navView.append(el('li', a));
+            if (country.ru === 'Россия') {
+            	a.classList.add('ru');
+                a.insertAdjacentHTML('afterbegin', '<i class="flag ru"></i>');
+			}
+            navView.append(li);
         }
 
-        var countryDiagramsView = new NodeCollectionView(document.querySelector('h1:nth-of-type(2)'), 'afterend');
+        var countryDiagramsView = new NodeCollectionView(document.querySelector('nav'), 'afterend');
 
         function renderCountryDiagramRow(country) {
-            var h2 = el('h2', country.ru+': '+nf.format(country.infected));
+            var h2 = el('h2', country.ru);
             h2.id = country.en;
             countryDiagramsView.append(h2);
+            countryDiagramsView.append(el('h3', 'Зараженных всего: '+nf.format(country.infected)));
+            var h3 = el('h3', 'Посуточно');
+            h3.classList.add('diagram');
+            countryDiagramsView.append(h3);
             countryDiagramsView.append(constructDiagramForCountry(country).node());
         }
         
         var render = seq(renderCountryDiagramRow, renderNav);
-        var totalData = {ru: 'Всего', infected: Object.values(totalHash).reduce(sum(function(c) { return c.infected }), 0), statisticsHash: totalHash};
+        var totalData = {ru: 'Мир', infected: totalHash[Object.keys(totalHash).reduce(max(), '')].infected, statisticsHash: totalHash};
         render(totalData);
         var firstCountriesNumber = 20;
         countries.filter(take(firstCountriesNumber)).forEach(render);
@@ -242,7 +265,6 @@
 	<p>Спасибо за данные coronavirus-monitor.ru<p>
 	<h1>Топ-20 зараженных стран</h1>
 	<nav><ul></ul></nav>
-	<h1>Заражений за сутки</h1>
 	<!--
 	<table id="countries">
 		<thead>
